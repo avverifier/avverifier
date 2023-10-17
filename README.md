@@ -1,16 +1,49 @@
-### Hi there 👋
+# Academic Paper Contract Verification Project
 
-<!--
-**avverifier/avverifier** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+This repository houses the datasets and tools used for a contract verification research project. The project encompasses benchmark data of 10 contracts, among which 6 are vulnerable and 4 are non-vulnerable. Subsequent modifications were made to change the 6 vulnerable contracts to non-vulnerable and the 4 non-vulnerable contracts to vulnerable. The details of each contract are stored in `contract_info.json` under each benchmark sub-directory.
 
-Here are some ideas to get you started:
+## Benchmark Data
 
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
--->
+The benchmark data is organized into individual folders under the `benchmark` directory. Each folder represents a contract and contains the following files:
+
+- `contract_info.json`: Contains information about the contract, including the blockchain chain it belongs to (e.g., Ethereum), contract address, vulnerable injection points, and functions. Example of `contract_info.json` file:
+
+```json
+{
+    "chain": "eth",
+    "ContractAddress": "0x085E34722e04567Df9E6d2c32e82fd74f3342e79",
+    "vulnerable injection point": "LendongPool.sol",
+    "vulnerable injection function": "deposit"
+}
+```
+
+**FixedFunction.sol**: The modified contract file where the vulnerability has been fixed.  
+**VulnerableInjection.sol**: The modified contract file where a vulnerability has been introduced.
+
+## Tools
+There are three tools utilized in this project:
+
+### AVVERIFIER
+- **stack.py**: Implementation for EVM (Ethereum Virtual Machine).
+- **solstatic.py**: Implementation for a detector.
+
+### Mythril Modify
+- **external_calls.py** and **check_storage.py**: Implementation of the methods discussed in the paper.
+- **cp_mythril.py**: A test file. Place contract addresses in `ca_open.txt` to use.
+
+### Ethainter Dector
+A datalog script written for vulnerability detection. Before running, install gigahorse and use `getissue.dl` as the runtime datalog file. This will generate a `GetIssue.csv` file containing vulnerable functions.
+
+## Installation
+1. Install [gigahorse](https://github.com/nevillegrech/gigahorse-toolchain) for running Ethainter Dector scripts.
+2. Place your contract addresses in `ca_open.txt` for testing with `cp_mythril.py`.
+3. Ensure you have the necessary environment setup for running Ethereum-based tools and scripts.
+
+## Usage
+Provide detailed steps on how to use the tools and access the benchmark data.
+
+## License
+Include license information here.
+
+## Contact
+Provide contact information for further inquiries or support.

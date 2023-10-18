@@ -1,0 +1,6 @@
+{
+    "chain": "eth",
+    "ContractAddress": "0x085E34722e04567Df9E6d2c32e82fd74f3342e79",
+    "vulnerable injection point": "LendongPool.sol",
+    "vulnerable injection function": "deposit"
+}

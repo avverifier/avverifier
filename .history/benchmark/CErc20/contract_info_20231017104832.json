@@ -1,0 +1,6 @@
+{
+    "chain": "eth",
+    "ContractAddress": "0x39AA39c021dfbaE8faC545936693aC917d5E7563",
+    "vulnerable injection point": "CErc20.sol",
+    "vulnerable injection function": "deposit"
+}

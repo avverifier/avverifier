@@ -1,0 +1,6 @@
+{
+    "chain": "eth",
+    "ContractAddress": "0xC9f27A50f82571C1C8423A42970613b8dBDA14ef",
+    "vulnerable injection point": "RewardsHypervisor.sol",
+    "vulnerable injection function": "deposit"
+}

@@ -1,0 +1,6 @@
+{
+    "chain": "bsc",
+    "ContractAddress": "0xA386F30853A7EB7E6A25eC8389337a5C6973421D",
+    "vulnerable injection point": "MasterChef.sol",
+    "vulnerable injection function": "enterMarkets"
+}

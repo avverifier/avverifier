@@ -1,0 +1,6 @@
+{
+    "chain": "eth",
+    "ContractAddress": "0x007FE7c498A2Cf30971ad8f2cbC36bd14Ac51156",
+    "vulnerable point": "BondFixedExpiryTeller.sol",
+    "vulnerable function": "redeem"
+}

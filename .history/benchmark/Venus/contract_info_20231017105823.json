@@ -1,0 +1,6 @@
+{
+    "chain": "bsc",
+    "ContractAddress": "0xAd69AA3811fE0EE7dBd4e25C4bae40e6422c76C8",
+    "vulnerable injection point": "MarketFacet.sol",
+    "vulnerable injection function": "enterMarkets"
+}

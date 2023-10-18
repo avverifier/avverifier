@@ -1,0 +1,452 @@
+#include "../clientlib/decompiler_imports.dl"
+#include "../clientlib/loops_semantics.dl"
+#include "../clientlib/guards.dl"
+#include "../clientlib/vulnerability_macros.dl"
+
+.decl MyVariable_Value(var: Variable, value: Function)
+.input MyVariable_Value(IO="file", filename="TAC_Variable_Value.csv", delimiter="\t")
+
+.decl Variable_block(var: Variable, value: Block)
+.input Variable_block(IO="file", filename="TAC_Variable_Value.csv", delimiter="\t")
+
+
+// 跟踪address1如何在函数调用中传递
+.decl AddressFlow(address1: Variable, address2: Variable)
+.output AddressFlow
+
+// 在同一个函数内部
+AddressFlow(address1, address2) :-
+    AddressTranform(address, address1),
+    AddressTranform(address, address2).
+
+AddressFlow(address1, address2) :-
+    (AddressTranform(address1, address2);AddressTranform(address2, address1)).
+
+// 通过函数调用传递
+AddressFlow(address1, address2) :-
+    // AddressTranform(_, address1),
+    // AddressTranform(address2, _),
+    GetCALLPRIVATE(_, _, address1, argindex, _, func),
+    GetPrivateFunc(_, address2, func, argindex).
+
+// 通过函数调用传递
+AddressFlow(address1, address2) :-
+    AddressFlow(address1, address3),
+    AddressFlow(address3, address2).
+
+AddressFlow(address1, address2) :-
+    AddressFlow(address2, address1).
+
+// 获取private函数
+.decl GetPrivateFunc(stmt: Statement, var: Variable, func: Function, argindex: number)
+.output GetPrivateFunc
+
+GetPrivateFunc(stmt, var, func, argindex) :-
+    IsInternalFunction(func),
+    FLA_Statement_Function(stmt, func),
+    FormalArgs(func, var, argindex).
+
+// 获得PRIVATE函数
+.decl GetCALLPRIVATE(stmt: Statement, func: Variable, var: Variable, num: number, Privatfunc: Variable, value: Function)
+.output GetCALLPRIVATE
+GetCALLPRIVATE(stmt, func, var, num-1, Privatfunc, value) :- 
+    CALLPRIVATE(stmt, func),
+    Statement_Uses(stmt, var, num),
+    Statement_Uses(stmt, Privatfunc, 0),
+    MyVariable_Value(Privatfunc, value).
+
+.decl IsInternalFunction(func: Function)
+.output IsInternalFunction
+
+IsInternalFunction(func) :-
+    IsFunction(func),
+    !IsPublicFunction(func).
+
+// 变换前后地址变量的对应
+// OriAddr为变换之前的地址，NOriAddr为变换之后的地址
+.decl AddressTranform(OriAddr: Variable, NOriAddr: Variable)
+AddressTranform(OriAddr, NOriAddr) :- 
+    (AND(_, constVar, OriAddr, NOriAddr); AND(_, OriAddr, constVar, NOriAddr)),
+    Variable_Value(constVar, "0xffffffffffffffffffffffffffffffffffffffff"). 
+
+AddressTranform(OriAddr, NOriAddr) :- 
+    (OR(_, _, OriAddr, NOriAddr); OR(_, OriAddr, _, NOriAddr)).
+
+AddressTranform(NOriAddr, NOriAddr) :- 
+    (CALLER(_, NOriAddr);ORIGIN(_, NOriAddr);ADDRESS(_, NOriAddr)).
+
+AddressTranform(OriAddr, NOriAddr) :- 
+    DIV(_, OriAddr, constVar, NOriAddr),
+    Variable_Value(constVar, "0x1"). 
+
+AddressTranform(OriAddr, NOriAddr) :- 
+    (MUL(_, OriAddr, constVar, NOriAddr); MUL(_, constVar, OriAddr, NOriAddr)),
+    Variable_Value(constVar, "0x1"). 
+
+AddressTranform(OriAddr, NOriAddr) :- 
+    (ADD(_, OriAddr, constVar, NOriAddr); ADD(_, constVar, OriAddr, NOriAddr)),
+    Variable_Value(constVar, "0x0"). 
+
+AddressTranform(OriAddr, NOriAddr) :- 
+    SUB(_, OriAddr, constVar, NOriAddr),
+    Variable_Value(constVar, "0x0"). 
+
+.decl IsAccessVar(Addr: Variable)
+IsAccessVar(Addr) :- 
+    (CALLER(_, NOriAddr);ORIGIN(_, NOriAddr)),
+    AddressFlow(NOriAddr, Addr).
+
+.decl IsCALLDATA(Addr: Variable )
+IsCALLDATA(Addr) :- 
+    CALLDATALOAD(_, _, OriAddr),
+    AddressFlow(OriAddr, Addr).
+
+// 污点生成（所有address的参数传入，都是污点生成）
+.decl VulnerableVar(callstmt: Statement, OriAddr: Variable, funcSign: symbol, callBlock: Block)
+.output VulnerableVar
+VulnerableVar(callstmt, OriAddr, funcSign, callBlock) :-
+    // 确定函数位置
+    FLA_Statement_Function(stmt, func),
+    PublicFunctionSelector(func, funcSign),
+
+    // 确定OriAddr存在于func的参数中，并且从calldata中加载
+    CALLDATALOAD(stmt, _, OriAddr),
+    AddressFlow(OriAddr, NOriAddr),
+
+    // 并且这个污点还作为了call的地址，即call(ca)
+    (CALL(callstmt, _, NOriAddr, _, _, _, _, _, _); STATICCALL(callstmt, _, NOriAddr, _, _, _, _, _)),
+    Statement_Block(callstmt, callBlock).
+
+// 污点生成（凡是address的参数传入，都是污点生成）,需要检测msg.sender
+.decl VulnerabeCalldata(funcSign: symbol)
+.output VulnerabeCalldata
+VulnerabeCalldata(funcSign) :-
+    // 确定函数位置
+    FLA_Statement_Function(stmt, func),
+    PublicFunctionSelector(func, funcSign),
+
+    // 确定OriAddr存在于func的参数中，并且从calldata中加载
+    CALLDATALOAD(stmt, _, OriAddr),
+    AddressFlow(OriAddr, NOriAddr),
+
+    // 并且这个污点还作为了call的地址，即call(ca)
+    (CALL(_, _, NOriAddr, _, _, _, _, _, _); STATICCALL(_, _, NOriAddr, _, _, _, _, _)).
+    // !CheckFuncSender(funcSign, _),
+    // !AddressIsValid(OriAddr).
+
+.decl VulnerableCaller(funcSign: symbol)
+.output VulnerableCaller
+VulnerableCaller(funcSign) :-
+    // 确定函数位置
+    FLA_Statement_Function(stmt, func),
+    PublicFunctionSelector(func, funcSign),
+
+    // 确定OriAddr是caller
+    CALLER(stmt, OriAddr),
+    AddressFlow(OriAddr, NOriAddr),
+
+    // 并且这个污点还作为了call的地址，即call(ca)
+    CALL(_, _, NOriAddr, _, _, _, _, _, _).
+    // !CheckFuncSender(funcSign, _).
+
+// 判断STORE是否在block里, 并改变了msg.sender的状态
+.decl CALLERFlows(NOriAddr: Variable)
+.output CALLERFlows
+
+CALLERFlows(NOriAddr) :- 
+    // 首先是改变谁的地址的状态，这里是calldata里非污点地址，以及msg.sender与tx.origin
+    CALLER(_, NOriAddr).
+
+// 地址验证标记（污点）
+.decl AddressIsValid(address: Variable)
+.output AddressIsValid
+//这个是判断EQ
+AddressIsValid(address) :-
+    // address为我们要验证的的地址，ca为一个hardcode地址
+    AddressTranform(_, address),
+    AddressTranform(hardCodeAddr1, ca),
+
+    // 首先这个address要作为opcode EQ的一个值
+    (EQ(_, ca, address, IsEQ);EQ(_, address, ca, IsEQ)),
+
+    // 第二步，判断hardCodeAddr1是否从某个slot里加载
+    // 从slot里加载之后需要和某个值相与
+    // ca是从一个slot里加载的
+    SLOAD(_, _, hardCodeAddr1),
+
+    // 第三步，EQ结果要作为一个跳转条件
+    DataFlows(IsEQ, jumpCond),
+    JUMPI(stmt, _, jumpCond),
+
+    Statement_Block(stmt, fromBlock),
+    FallthroughEdge(fromBlock, toBlock),
+    RevertInBlock(toBlock).
+
+//这个是判断mapping
+AddressIsValid(address) :-
+    // address为我们要验证的的地址，ca为一个hardcode地址
+    AddressTranform(_, address),
+
+    // 首先要把address存入内存
+    MSTORE(_, offset, address),
+    SHA3(_, offset, _, slot),
+    SLOAD(_, slot, Mapres),
+    DataFlows(Mapres, jumpCond),
+    JUMPI(stmt, _, jumpCond),
+
+    Statement_Block(stmt, fromBlock),
+    FallthroughEdge(fromBlock, toBlock),
+    RevertInBlock(toBlock).
+
+// 判断revert是否在block里
+.decl RevertInBlock(block: Block)
+RevertInBlock(block) :-
+    Statement_Block(stmt, block),
+    REVERT(stmt, _, _).
+
+.decl FLA_Statement_Function(stmt:Statement, func:Function)
+FLA_Statement_Function(stmt, func) :-
+  Statement_Function(stmt, func).
+
+FLA_Statement_Function(stmt, caller) :-
+  InFunction(block, caller),
+  CallGraphEdge(block, callee),
+  FLA_Statement_Function(stmt, callee).
+
+.decl HasChangeState(func: Function)
+.output HasChangeState
+HasChangeState(func) :-
+    FLA_Statement_Function(stmt, func),
+    (SSTORE(stmt, _, _);CALL(stmt, _, _, _, _, _, _, _, _)).
+
+// 意思就是有一条路径使得 block1 单向传递到 block2
+.decl BlockOneWayTran(block1: Block, block2: Block)
+.output BlockOneWayTran
+
+// 基本情况：block1 直接连接到 block2
+BlockOneWayTran(block1, block2) :-
+    LocalBlockEdge(block1, block2).
+
+// 递归情况：block1 连接到某个中间块 intermediateBlock，
+// 而 intermediateBlock 可以连接到 block2
+BlockOneWayTran(block1, block2) :-
+    BlockOneWayTran(block1, intermediateBlock),
+    BlockOneWayTran(intermediateBlock, block2).
+
+BlockOneWayTran(block1, block2) :-
+    CALLPRIVATE(stmt, _),
+    Statement_Block(stmt, block1),
+    Statement_Uses(stmt, Privatfunc, _),
+    Variable_block(Privatfunc, block2).
+
+// 普通地址检查，意思就是非taint var,即calldata里非污点的地址
+.decl OrdiVar(stmt: Statement, OriAddr: Variable, funcSign: symbol)
+.output OrdiVar
+OrdiVar(stmt, OriAddr, funcSign) :-
+    // 确定函数位置
+    FLA_Statement_Function(stmt, func),
+    PublicFunctionSelector(func, funcSign),
+
+    // 确定OriAddr存在于func的参数中，并且从calldata中加载
+    CALLDATALOAD(stmt, _, OriAddr),
+    AddressFlow(OriAddr, NOriAddr),
+
+    // 同样也没有被验证
+    !AddressIsValid(NOriAddr).
+
+// 判断STORE是否在block里, 并改变了msg.sender的状态
+.decl SSTOREChangeState(block: Block, OriAddr: Variable, FlowOriAddr: Variable)
+.output SSTOREChangeState
+SSTOREChangeState(block, OriAddr, FlowOriAddr) :-
+ 
+    FLA_Statement_Function(stmt, func),
+    PublicFunctionSelector(func, _),
+    // 首先是改变谁的地址的状态，这里是calldata里非污点地址，以及msg.sender与tx.origin
+    (CALLER(_, OriAddr); ORIGIN(_, OriAddr); OrdiVar(_, OriAddr, _)),
+    // 首先将address存入内存
+    AddressFlow(OriAddr, FlowOriAddr),
+    MSTORE(_, offset, FlowOriAddr),
+    SHA3(_, offset, _, slot),
+
+    // 当前block存在SSTORE操作，并且在taint call之后
+    Statement_Block(stmt, block),
+    SSTORE(stmt, slot, _).
+
+SSTOREChangeState(block, OriAddr, FlowOriAddr) :-
+ 
+    FLA_Statement_Function(stmt, func),
+    PublicFunctionSelector(func, _),
+    // 首先是改变谁的地址的状态，这里是calldata里非污点地址，以及msg.sender与tx.origin
+    (CALLER(_, OriAddr); ORIGIN(_, OriAddr); OrdiVar(_, OriAddr, _)),
+    // 首先将address存入内存
+    AddressFlow(OriAddr, FlowOriAddr),
+    Statement_Block(stmt, block),
+    SSTORE(stmt, _, FlowOriAddr).
+
+SSTOREChangeState(block, OriAddr, FlowOriAddr) :-
+ 
+    FLA_Statement_Function(_, func),
+    PublicFunctionSelector(func, _),
+    // 接下来是使用caller作为call的参数
+    (CALLER(_, OriAddr); ORIGIN(_, OriAddr); OrdiVar(_, OriAddr, _)),
+    // 首先先获得call
+    CALL(callstmt, _, _, _, _, _, _, _, _),
+    StatementUsesMemory_ActualMemoryArg(callstmt, _, _, FlowOriAddr),
+    !VulnerableVar(_, taintaddress, _, _),
+    AddressFlow(taintaddress, FlowOriAddr),
+    // 当前block存在SSTORE操作，并且在taint call之后
+    Statement_Block(callstmt, block),
+    AddressFlow(OriAddr, FlowOriAddr).
+
+SSTOREChangeState(block, OriAddr, FlowOriAddr) :-
+ 
+    FLA_Statement_Function(_, func),
+    PublicFunctionSelector(func, _),
+    // 接下来是使用caller作为call的参数
+    CALLDATALOAD(stmt, _, OriAddr),
+    // 首先先获得call
+    CALL(callstmt, _, _, _, _, _, _, _, _),
+    StatementUsesMemory_ActualMemoryArg(callstmt, _, _, FlowOriAddr),
+    !VulnerableVar(_, taintaddress, _, _),
+    AddressFlow(taintaddress, FlowOriAddr),
+    // 当前block存在SSTORE操作，并且在taint call之后
+    Statement_Block(callstmt, block),
+    AddressFlow(OriAddr, FlowOriAddr).
+
+// 判断是否为CALLER或ORIGIN
+.decl IsCallerOrOrigin(address: Variable)
+.output IsCallerOrOrigin
+IsCallerOrOrigin(address) :- 
+    AddressFlow(address, address2),
+    CALLER(_, address2).
+IsCallerOrOrigin(address) :- 
+    AddressFlow(address, address2),
+    ORIGIN(_, address2).
+
+.decl SenderIsValid(HardcodedAddress: Variable)
+// 检查sender是否通过mapping进行了验证
+SenderIsValid(HardcodedAddress) :-
+    // 确定HardcodedAddress来源于CALLER或ORIGIN
+    IsCallerOrOrigin(HardcodedAddress),
+
+    // 将HardcodedAddress存储到内存中
+    MSTORE(_, offset, HardcodedAddress),
+    // 使用SHA3计算slot位置
+    SHA3(_, offset, _, slot),
+    // 从slot加载映射结果
+    SLOAD(_, slot, Mapres),
+    // 确定映射结果作为跳转条件
+    DataFlows(Mapres, jumpCond),
+    JUMPI(stmt, _, jumpCond),
+
+    // 如果跳转条件满足，合约将执行revert操作
+    Statement_Block(stmt, fromBlock),
+    FallthroughEdge(fromBlock, toBlock),
+    RevertInBlock(toBlock).
+
+// 检查sender是否与硬编码地址进行了比较
+SenderIsValid(HardcodedAddress) :-
+    // 确定address来源于CALLER或ORIGIN
+    IsCallerOrOrigin(address),
+    
+    // 检查address是否与硬编码地址HardcodedAddress进行了比较
+    (EQ(_, HardcodedAddress, address, IsEQ);EQ(_, address, HardcodedAddress, IsEQ)),
+
+    // 确定比较结果作为跳转条件
+    DataFlows(IsEQ, jumpCond),
+    JUMPI(stmt, _, jumpCond),
+
+    // 如果比较结果为真，合约将执行revert操作
+    Statement_Block(stmt, fromBlock),
+    FallthroughEdge(fromBlock, toBlock),
+    RevertInBlock(toBlock).
+
+.decl GetIssue(funcSign: symbol)
+.output GetIssue
+
+GetIssue(funcSign) :- 
+    // 确定存在一个容易受攻击的变量
+    VulnerableVar(_, address, funcSign, callBlock),
+    // 检查是否有状态更改
+    SSTOREChangeState(sstoreBlock, _, _),
+    // 确定sender没有通过mapping或EQ进行验证
+    !AddressIsValid(address),
+    // 这里是不存在msg.sender的校验
+    !CheckFuncSender(funcSign, _),
+    BlockOneWayTran(callBlock, sstoreBlock).
+
+GetIssue(funcSign) :- 
+    // 确定存在一个容易受攻击的变量
+    VulnerableVar(callstmt, address, funcSign, callBlock),
+    // 检查是否有状态更改
+    SSTOREChangeState(sstoreBlock, _, _),
+    // 确定sender没有通过mapping或EQ进行验证
+    !AddressIsValid(address),
+    // 这里是当ExternalCall_ActualReturn不存在时的其他条件
+    ExternalCall_ActualReturn(callstmt, retVar, _),
+    CheckFuncSender(funcSign, callAddr),
+    (EQ(_, callAddr, retVar1, _);EQ(_, retVar1, callAddr, _)),
+    AddressFlow(retVar1, retVar),
+    BlockOneWayTran(callBlock, sstoreBlock).
+
+.decl CheckFuncSender(funcSign: symbol, callAddr: Variable)
+.output CheckFuncSender
+CheckFuncSender(funcSign, callAddr) :-
+    FLA_Statement_Function(stmt, func),
+    PublicFunctionSelector(func, funcSign),
+    Statement_Block(stmt, pubBlock),
+    BlockOneWayTran(pubBlock, otherBlock),
+    Statement_Block(callerstmt, otherBlock),
+    IsCallerOrOrigin(callAddr),
+    (EQ(callerstmt, callAddr, _, _);EQ(callerstmt, _, callAddr, _)).
+
+.decl GetExternalCall(callstmt: Statement, address: Variable)
+.output GetExternalCall
+
+GetExternalCall(callstmt, address) :-
+    CALL(callstmt, _, _, _, _, _, _, _, _),
+    ExternalCall_ActualReturn(callstmt, address, _).
+
+// 获得那些没有重入保护的方法
+.decl NotReenGuard(funcSign: symbol)
+.output NotReenGuard
+
+NotReenGuard(funcSign) :-
+    HasChangeState(func),
+    FLA_Statement_Function(_, func),
+    PublicFunctionSelector(func, funcSign),
+    !CheckFuncSender(funcSign, _),
+    !IsProtectedFunction(funcSign).
+/*
+.decl IsProtectedFunction(funcSign: symbol)
+IsProtectedFunction(funcSign) :-
+    // 确定存在一个重入性守卫
+    SLOAD(stmtSLOAD, index1, sloadRES),
+    CONST(_, reen1),
+    DataFlows(reen1, reen2),
+    (EQ(_, sloadRES, reen2, _); EQ(_, reen2, sloadRES, _)),
+    SSTORE(stmtSSTORE, index2, _),
+    Statement_Block(stmtSLOAD, SLOADBlock),
+    Statement_Block(stmtSSTORE, SSTOREBlock),
+    BlockOneWayTran(SLOADBlock, SSTOREBlock),
+    Variable_Value(index1, v),
+    Variable_Value(index2, v),
+    FLA_Statement_Function(stmtSLOAD, func),
+    PublicFunctionSelector(func, funcSign).
+*/
+
+.decl IsProtectedFunction(funcSign: symbol)
+.output IsProtectedFunction
+IsProtectedFunction(funcSign) :-
+    // 确定存在一个重入性守卫
+    SLOAD(stmtSLOAD, index1, sloadRES),
+    DataFlows(sloadRES, constVar),
+    JUMPI(_, _, constVar),
+    SSTORE(stmtSSTORE, index2, _),
+    Variable_Value(index1, v),
+    Variable_Value(index2, v),
+    Statement_Block(stmtSLOAD, SLOADBlock),
+    Statement_Block(stmtSSTORE, SSTOREBlock),
+    BlockOneWayTran(SLOADBlock, SSTOREBlock),
+    FLA_Statement_Function(stmtSLOAD, func),
+    PublicFunctionSelector(func, funcSign).

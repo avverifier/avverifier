@@ -1,0 +1,6 @@
+{
+    "chain": "eth",
+    "ContractAddress": "",
+    "vulnerable injection point": "CErc20.sol",
+    "vulnerable injection function": "liquidateBorrow"
+}

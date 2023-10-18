@@ -1,0 +1,6 @@
+{
+    "chain": "eth",
+    "ContractAddress": "0xd2869042E12a3506100af1D192b5b04D65137941",
+    "vulnerable point": "StaxLPStaking.sol",
+    "vulnerable function": "migrateStake"
+}

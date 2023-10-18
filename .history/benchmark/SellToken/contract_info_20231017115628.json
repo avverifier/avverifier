@@ -1,0 +1,6 @@
+{
+    "chain": "bsc",
+    "ContractAddress": "0x274b3e185c9c8f4ddEF79cb9A8dC0D94f73A7675",
+    "vulnerable point": "StakingRewards.sol",
+    "vulnerable function": "addLiquidity"
+}

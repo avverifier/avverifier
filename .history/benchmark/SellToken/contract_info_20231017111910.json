@@ -1,0 +1,6 @@
+{
+    "chain": "arb",
+    "ContractAddress": "0xd1B589C00C940C4C3F7b25e53c8d921C44eF9140",
+    "vulnerable injection point": "LendongPool.sol",
+    "vulnerable injection function": "deposit"
+}
